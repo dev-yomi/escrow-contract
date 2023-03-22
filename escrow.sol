@@ -91,7 +91,7 @@ contract Escrow is ReentrancyGuard {
     //above overloaded functions call below private Offer creation function
     function _createOffer(address _caller, address _baseToken, address _tokenToSellAddress, uint256 _numOfTokensToSell, uint256 _totalSaleValue, uint256 _deadline) private {
         require(_caller != address(0), "Seller address cannot be the zero address.");
-        require(_numOfTokensToSell > 0 && _totalSaleValue > 0 && _deadline > block.timestamp && _baseToken != address(0));
+        require(_numOfTokensToSell > 0 && _totalSaleValue > 0 && _deadline > 0 && _baseToken != address(0));
             ERC20 baseToken = ERC20(_baseToken);
             ERC20 token = ERC20(_tokenToSellAddress);
         baseToken.safeTransferFrom(_caller, address(this), getExpectedValueDeposit(_totalSaleValue));
