@@ -19,16 +19,26 @@ Implements ReentrancyGuard for added security.
 
 ## How It Works
 
-Seller
+### Seller
+
 Create an offer by calling createOffer() with the required parameters.
 Optionally, add the token address of the token to sell by calling addTokenAddress().
+
 Deposit the tokens to sell by calling depositTokens().
+
 If the offer is not fulfilled, the seller can cancel the offer (cancelOffer()) or back out (backOut()) after the deadline.
-Buyer
+
+
+### Buyer
+
 Accept an offer by calling acceptOffer(), depositing the required baseToken amount.
+
 Verify the token address provided by the seller using verifyTokenAddress().
+
 If the offer conditions are met, either the buyer or seller can settle the offer by calling settleOffer().
+
 If the other party has reneged on the deal, the buyer can back out (backOut()) after the deadline.
+
 In the event that the seller did not deposit tokens, the buyer receives the seller's deposit.
 
 ## Important Notes
