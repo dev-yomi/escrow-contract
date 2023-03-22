@@ -5,9 +5,13 @@ This contract provides an escrow service for securely trading ERC20 tokens on th
 ## Features
 
 Allows sellers to create offers by specifying the token they wish to receive, the number of tokens to sell, the total sale value, and a deadline.
+
 Sellers can optionally add the token address of the token they want to sell.
+
 Buyers can accept offers and deposit the required base tokens.
+
 Both parties can settle or cancel the offer, depending on the fulfillment of the conditions.
+
 Secured by a 25% deposit from the seller (in baseToken).
 A 1% fee on the transaction value is charged to the seller.
 
