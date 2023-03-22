@@ -1,7 +1,9 @@
 #Escrow Contract for ERC20 Tokens
+
 This contract provides an escrow service for securely trading ERC20 tokens on the blockchain, including the Over-The-Counter (OTC) sale of tokens that have not yet launched. It ensures a trustless and secure trading environment for both sellers and buyers.
 
 ##Features
+
 Allows sellers to create offers by specifying the token they wish to receive, the number of tokens to sell, the total sale value, and a deadline.
 Sellers can optionally add the token address of the token they want to sell.
 Buyers can accept offers and deposit the required base tokens.
@@ -12,6 +14,7 @@ A 1% fee on the transaction value is charged to the seller.
 Implements ReentrancyGuard for added security.
 
 ##How It Works
+
 Seller
 Create an offer by calling createOffer() with the required parameters.
 Optionally, add the token address of the token to sell by calling addTokenAddress().
