@@ -31,7 +31,7 @@ contract Escrow is ReentrancyGuard {
         -Verify the token address provided by the seller using verifyTokenAddress().
         -If the offer conditions are met, either the buyer or seller can settle the offer by calling settleOffer().
         -If the other party has reneged on the deal, the buyer can back out (backOut()) after the deadline.
-        
+
         IMPORTANT NOTE: Buyer must call acceptOffer(), passing the Offer id and a boolean. Ensuring that the _hasBuyerVerifiedAddress boolean parameter is set to FALSE.
         Setting to it TRUE will skip the required tx where the Buyer confirms the address given by the Seller
 
@@ -121,7 +121,6 @@ contract Escrow is ReentrancyGuard {
         This step is required for the Offer to be able to get settled.*/
     function verifyTokenAddress(uint256 _id, address _expectedAddress) public {
         require(msg.sender == offers[_id].buyer, "Not the buyer.");
-        require(offers[_id].isOpen, "Offer is closed.");
         require(!hasDeadlinePassed(_id), "Deadline passed.");
         if(offers[_id].tokenAddress == _expectedAddress){
             offers[_id].tokenAddressVerified = true;
