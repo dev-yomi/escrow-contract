@@ -9,40 +9,10 @@ contract Escrow is ReentrancyGuard {
 
     using SafeERC20 for ERC20;
 
-    /*
-        This contract implements an escrow service for trading ERC20 tokens on the blockchain.
-        Notably it allows the OTC sale of tokens that have not yet launched, in a secure and trustless manner.
-
-        Seller:
-
-        -Create an offer by calling createOffer(), specifying baseToken (the token you wish to receive), number of tokens to sell, 
-        total sale value (the amount of baseToken you expect to receive in total), and a deadline.
-        (Optional) Add the token address of the token to sell by calling addTokenAddress().
-        -Deposit the tokens to sell by calling depositTokens().
-        -If the offer is not fulfilled, the seller can cancel the offer (cancelOffer()) or back out (backOut()) after the deadline.
-
-        Note: The deadline is specified in seconds since the Unix epoch, using the block.timestamp. For example, a deadline of 1 day is equivalent to 86400 seconds.
-        In this example, the deadline would be up 86400 seconds after you create the Offer.
-
-
-        Buyer:
-
-        -Accept an offer by calling acceptOffer(), depositing the required baseToken amount.
-        -Verify the token address provided by the seller using verifyTokenAddress().
-        -If the offer conditions are met, either the buyer or seller can settle the offer by calling settleOffer().
-        -If the other party has reneged on the deal, the buyer can back out (backOut()) after the deadline.
-
-        IMPORTANT NOTE: Buyer must call acceptOffer(), passing the Offer id and a boolean. Ensuring that the _hasBuyerVerifiedAddress boolean parameter is set to FALSE.
-        Setting to it TRUE will skip the required tx where the Buyer confirms the address given by the Seller
-
-        ***-ONLY SET _hasBuyerVerifiedAddress TO TRUE IF YOU ARE 100% CERTAIN THE TOKEN BEING SUPPLIED BY THE SELLER IS CORRECT-***
-
-        Note: Offers are secured by a 25% deposit from the seller (in baseToken). A 1% fee on the transaction value is charged to the seller.
-        Note: All values are in wei. If you are using a token with a different decimal count than the standard 18, you must account for that.
-    */
-
     uint256 public offerCount = 0;
     mapping(uint256 => Offer) public offers;
+    mapping(address => mapping(uint256 => address)) private expectedAddress;
+    mapping(uint256 => bool) private disputeFlag;
     mapping(address => uint256) public feesEarned;
     address public dev;
 
@@ -96,7 +66,6 @@ contract Escrow is ReentrancyGuard {
         require(_numOfTokensToSell > 0 && _totalSaleValue > 0 && _deadline > 0 && _baseToken != address(0));
             ERC20 baseToken = ERC20(_baseToken);
             ERC20 token = ERC20(_tokenToSellAddress);
-        baseToken.safeTransferFrom(_caller, address(this), getExpectedValueDeposit(_totalSaleValue));
         uint256 _depositedTokens = 0;
         uint256 _collat = 0;
         if(_tokenToSellAddress != address(0)){
@@ -106,49 +75,72 @@ contract Escrow is ReentrancyGuard {
             _collat = 0;
         } else {
             _collat = getExpectedValueDeposit(_totalSaleValue);
+            baseToken.safeTransferFrom(_caller, address(this), getExpectedValueDeposit(_totalSaleValue));
         }
             offerCount++;
             Offer memory userOffer = Offer(offerCount, block.timestamp, _caller, _baseToken, _tokenToSellAddress, false, _numOfTokensToSell, _totalSaleValue, _deadline, _collat, true, 0, address(this), _depositedTokens);
             offers[offerCount] = userOffer;
+            expectedAddress[msg.sender][offerCount] = address(0);
                 emit OfferCreated(userOffer.id, userOffer.tokenAddress, userOffer.baseToken, userOffer.numberOfTokensForSale, userOffer.totalSaleValue);
     }
 
-    /*  Seller must add the token address of what they are selling. This is only possible if the Seller did NOT
-        define an _tokenToSellAddress when creating the offer. It can only be called ONCE.  */
+    /*  Seller must add the token address of the token they are selling. This is only possible if the Seller did NOT
+        define a _tokenToSellAddress when creating the offer. It can only be called ONCE. */
     function addTokenAddress(uint256 _id, address _tokenToSellAddress) public {
         require(_tokenToSellAddress != address(0));
         require(offers[_id].tokenAddress == address(0), "Token address has already been updated!");
         require(offers[_id].seller == msg.sender, "You are not the seller.");
         require(!hasDeadlinePassed(_id), "Deadline passed.");
+
+        expectedAddress[msg.sender][_id] == _tokenToSellAddress;
+
+        if(expectedAddress[msg.sender][_id] == expectedAddress[offers[_id].buyer][_id]){
             offers[_id].tokenAddress = _tokenToSellAddress;
-                emit TokenAddressUpdated(_id, _tokenToSellAddress);
+            offers[_id].tokenAddressVerified = true;
+            emit TokenAddressUpdated(_id, _tokenToSellAddress);
+        } else if (expectedAddress[offers[_id].buyer][_id] == address(0)){
+            offers[_id].tokenAddress = _tokenToSellAddress;
+            emit TokenAddressUpdated(_id, _tokenToSellAddress);
+        } else {
+            disputeFlag[_id] = true;
+        }
     }
-    /*  The Buyer MUST verify the Seller's given address by calling this function. Buyer will pass the _expectedAddress in to ensure safety. 
-        This step is required for the Offer to be able to get settled.*/
-    function verifyTokenAddress(uint256 _id, address _expectedAddress) public {
+
+    /* Used by the Buyer to submit an expected token address. Only callable ONCE. */
+    function addExpectedAddress(uint256 _id, address _expectedAddress) public {
+        require(_expectedAddress != address(0), "Cannot be the zero address.");
+        require(expectedAddress[msg.sender][_id] == address(0), "Address already set");
         require(msg.sender == offers[_id].buyer, "Not the buyer.");
         require(!hasDeadlinePassed(_id), "Deadline passed.");
-        if(offers[_id].tokenAddress == _expectedAddress){
+
+        expectedAddress[msg.sender][_id] = _expectedAddress;
+
+        if(expectedAddress[msg.sender][_id] == expectedAddress[offers[_id].seller][_id]){
+            offers[_id].tokenAddress = _expectedAddress;
             offers[_id].tokenAddressVerified = true;
-            emit TokenAddressVerified(_id, offers[_id].tokenAddress);
+            emit TokenAddressUpdated(_id, _expectedAddress);
+        } else if (expectedAddress[offers[_id].seller][_id] == address(0)){
+            offers[_id].tokenAddress = _expectedAddress;
+            emit TokenAddressUpdated(_id, _expectedAddress);
         } else {
-            offers[_id].tokenAddressVerified = false;
+            disputeFlag[_id] = true;
         }
-        
     }
 
     //Seller must deposit the tokens they are selling if they did not do so initially
-    function depositTokens(uint256 _id) public {
+    function depositTokens(uint256 _id) public nonReentrant {
         require(!hasDeadlinePassed(_id), "Deadline passed.");
         require(msg.sender == offers[_id].seller, "Not the seller");
         require(offers[_id].tokenAddress != address(0));
-        require(offers[_id].tokenAddressVerified, "Buyer has not verified this token address");
             ERC20 token = ERC20(offers[_id].tokenAddress);
             uint256 preBal = token.balanceOf(address(this));
-        token.safeTransferFrom(msg.sender, address(this), offers[_id].numberOfTokensForSale);
+            token.safeTransferFrom(msg.sender, address(this), offers[_id].numberOfTokensForSale);
             uint256 newBal = token.balanceOf(address(this)) - preBal;
             offers[_id].tokensDeposited += newBal;
-                emit TokensDeposited(_id, newBal);
+            emit TokensDeposited(_id, newBal);
+            if(offers[_id].tokenAddressVerified){
+                settleOffer(_id, msg.sender);
+            }
     }
 
     //Buyer can accept offer by depositing the correct number of baseToken to an offer
@@ -167,7 +159,7 @@ contract Escrow is ReentrancyGuard {
                 emit OfferAccepted(_id, msg.sender);
             if(offers[_id].tokensDeposited >= offers[_id].numberOfTokensForSale && _hasBuyerVerifiedTokenAddress == true && offers[_id].bidValue >= offers[_id].totalSaleValue){
                 offers[_id].tokenAddressVerified = true;
-                settleOffer(_id);
+                settleOffer(_id, msg.sender);
             }
     }
 
@@ -179,7 +171,20 @@ contract Escrow is ReentrancyGuard {
         require(msg.sender == offers[_id].buyer || msg.sender == offers[_id].seller);
         require(offers[_id].tokensDeposited >= offers[_id].numberOfTokensForSale);
         require(offers[_id].bidValue >= offers[_id].totalSaleValue);
-        require(offers[_id].tokenAddressVerified, "Token address not verified by buyer.");
+        require(offers[_id].tokenAddressVerified, "Token address not verified.");
+        
+        _transferTokensAndSettle(_id);
+        clearOffer(_id);
+        emit OfferSettled(_id);
+    }
+
+    function settleOffer(uint256 _id, address _caller) private nonReentrant {
+        require(!offers[_id].isOpen, "Offer is still open.");
+        require(!hasDeadlinePassed(_id), "Deadline passed.");
+        require(_caller == offers[_id].buyer || _caller == offers[_id].seller);
+        require(offers[_id].tokensDeposited >= offers[_id].numberOfTokensForSale);
+        require(offers[_id].bidValue >= offers[_id].totalSaleValue);
+        require(offers[_id].tokenAddressVerified, "Token address not verified.");
         
         _transferTokensAndSettle(_id);
         clearOffer(_id);
@@ -224,7 +229,7 @@ contract Escrow is ReentrancyGuard {
         require(!offers[_id].isOpen, "Offer is still open.");
         require(msg.sender == offers[_id].seller || msg.sender == offers[_id].buyer, "Wrong permissions.");
         require(hasDeadlinePassed(_id), "Deadline has not passed.");
-            if(offers[_id].bidValue >= offers[_id].totalSaleValue && offers[_id].tokensDeposited < offers[_id].numberOfTokensForSale){
+            if(offers[_id].bidValue >= offers[_id].totalSaleValue && offers[_id].tokensDeposited < offers[_id].numberOfTokensForSale && offers[_id].tokenAddressVerified){
                 baseToken.transfer(offers[_id].buyer, offers[_id].bidValue + offers[_id].depositValue - getExpectedFee(offers[_id].depositValue + offers[_id].bidValue));
                 if(offers[_id].tokensDeposited > 0){
                     token.transfer(offers[_id].seller, offers[_id].tokensDeposited);
@@ -232,18 +237,18 @@ contract Escrow is ReentrancyGuard {
                 feesEarned[offers[_id].baseToken] += getExpectedFee(offers[_id].bidValue + offers[_id].depositValue);
                     clearOffer(_id);
                         emit OfferBackedOut(_id);
-            }else if ((offers[_id].bidValue < offers[_id].totalSaleValue && offers[_id].tokensDeposited >= offers[_id].numberOfTokensForSale)){
-                token.transfer(offers[_id].seller, offers[_id].tokensDeposited);
-                if(offers[_id].bidValue > 0){
-                    baseToken.transfer(offers[_id].buyer, offers[_id].bidValue);
+            }  else {
+                
+                uint multiplier = 1;
+                if(disputeFlag[_id] == true) {
+                    multiplier = 5;
                 }
-                baseToken.transfer(offers[_id].seller, offers[_id].depositValue - getExpectedFee(offers[_id].depositValue + offers[_id].bidValue));
-                feesEarned[offers[_id].baseToken] += getExpectedFee(offers[_id].bidValue + offers[_id].depositValue);
+                token.transfer(offers[_id].seller, offers[_id].tokensDeposited);
+                baseToken.transfer(offers[_id].buyer, offers[_id].bidValue - getExpectedFee(offers[_id].bidValue * multiplier));
+                baseToken.transfer(offers[_id].seller, offers[_id].depositValue - getExpectedFee(offers[_id].depositValue * multiplier));
+                feesEarned[offers[_id].baseToken] += getExpectedFee((offers[_id].bidValue + offers[_id].depositValue) * multiplier);
                     clearOffer(_id);
                         emit OfferBackedOut(_id);
-            } else {
-                token.transfer(offers[_id].seller, offers[_id].tokensDeposited);
-                baseToken.transfer(offers[_id].buyer, offers[_id].bidValue);
             }
     }
 
@@ -293,5 +298,6 @@ contract Escrow is ReentrancyGuard {
         require(msg.sender == dev, "Not the owner.");
         _;
     }
+    
     
 }
