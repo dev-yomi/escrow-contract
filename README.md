@@ -45,7 +45,9 @@ In the event that the seller did not deposit tokens, the buyer receives the sell
 
 Deadlines are specified in seconds since the Unix epoch, using the block.timestamp.
 All values are in wei. If you are using a token with a different decimal count than the standard 18, you must account for that.
-Events
+
+
+###Events
 
 OfferCreated: Emitted when an offer is created.
 
