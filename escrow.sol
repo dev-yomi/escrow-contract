@@ -12,6 +12,7 @@ contract Escrow is ReentrancyGuard {
     uint256 public offerCount = 0;
     mapping(uint256 => Offer) public offers;
     mapping(address => mapping(uint256 => address)) private expectedAddress;
+    mapping(address => mapping(uint256 => bool)) private addressCheck;
     mapping(uint256 => bool) private disputeFlag;
     mapping(address => uint256) public feesEarned;
     address public dev;
@@ -93,6 +94,7 @@ contract Escrow is ReentrancyGuard {
         require(!hasDeadlinePassed(_id), "Deadline passed.");
 
         expectedAddress[msg.sender][_id] == _tokenToSellAddress;
+        addressCheck[msg.sender][_id] = true;
 
         if(expectedAddress[msg.sender][_id] == expectedAddress[offers[_id].buyer][_id]){
             offers[_id].tokenAddress = _tokenToSellAddress;
@@ -114,6 +116,7 @@ contract Escrow is ReentrancyGuard {
         require(!hasDeadlinePassed(_id), "Deadline passed.");
 
         expectedAddress[msg.sender][_id] = _expectedAddress;
+        addressCheck[msg.sender][_id] = true;
 
         if(expectedAddress[msg.sender][_id] == expectedAddress[offers[_id].seller][_id]){
             offers[_id].tokenAddress = _expectedAddress;
@@ -229,7 +232,7 @@ contract Escrow is ReentrancyGuard {
         require(!offers[_id].isOpen, "Offer is still open.");
         require(msg.sender == offers[_id].seller || msg.sender == offers[_id].buyer, "Wrong permissions.");
         require(hasDeadlinePassed(_id), "Deadline has not passed.");
-            if(offers[_id].bidValue >= offers[_id].totalSaleValue && offers[_id].tokensDeposited < offers[_id].numberOfTokensForSale && offers[_id].tokenAddressVerified){
+            if(offers[_id].tokensDeposited < offers[_id].numberOfTokensForSale && offers[_id].tokenAddressVerified){
                 baseToken.transfer(offers[_id].buyer, offers[_id].bidValue + offers[_id].depositValue - getExpectedFee(offers[_id].depositValue + offers[_id].bidValue));
                 if(offers[_id].tokensDeposited > 0){
                     token.transfer(offers[_id].seller, offers[_id].tokensDeposited);
@@ -237,13 +240,12 @@ contract Escrow is ReentrancyGuard {
                 feesEarned[offers[_id].baseToken] += getExpectedFee(offers[_id].bidValue + offers[_id].depositValue);
                     clearOffer(_id);
                         emit OfferBackedOut(_id);
-            }  else {
-                
+            }  else {            
                 uint multiplier = 1;
                 if(disputeFlag[_id] == true) {
                     multiplier = 5;
                 }
-                token.transfer(offers[_id].seller, offers[_id].tokensDeposited);
+                token.transfer(offers[_id].seller, offers[_id].tokensDeposited - getExpectedFee(offers[_id].tokensDeposited * multiplier));
                 baseToken.transfer(offers[_id].buyer, offers[_id].bidValue - getExpectedFee(offers[_id].bidValue * multiplier));
                 baseToken.transfer(offers[_id].seller, offers[_id].depositValue - getExpectedFee(offers[_id].depositValue * multiplier));
                 feesEarned[offers[_id].baseToken] += getExpectedFee((offers[_id].bidValue + offers[_id].depositValue) * multiplier);
