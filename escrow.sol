@@ -51,6 +51,8 @@ contract Escrow is ReentrancyGuard {
     event OfferSettled(uint256 indexed offerId);
     event OfferCancelled(uint256 indexed offerId);
     event TokenAddressUpdated(uint256 indexed offerId, address tokenAddress);
+    event TokenAddressVerified(uint256 indexed offerId, address tokenAddress);
+    event TokensDeposited(uint256 indexed offerId, uint256 amount);
     event OfferBackedOut(uint256 indexed offerId);
 
     constructor(address _dev){
@@ -96,13 +98,17 @@ contract Escrow is ReentrancyGuard {
             ERC20 token = ERC20(_tokenToSellAddress);
         baseToken.safeTransferFrom(_caller, address(this), getExpectedValueDeposit(_totalSaleValue));
         uint256 _depositedTokens = 0;
+        uint256 _collat = 0;
         if(_tokenToSellAddress != address(0)){
             uint256 preBal = token.balanceOf(address(this));
             token.safeTransferFrom(_caller, address(this), _numOfTokensToSell);
             _depositedTokens = token.balanceOf(address(this)) - preBal;
+            _collat = 0;
+        } else {
+            _collat = getExpectedValueDeposit(_totalSaleValue);
         }
             offerCount++;
-            Offer memory userOffer = Offer(offerCount, block.timestamp, _caller, _baseToken, _tokenToSellAddress, false, _numOfTokensToSell, _totalSaleValue, _deadline, getExpectedValueDeposit(_totalSaleValue), true, 0, address(this), _depositedTokens);
+            Offer memory userOffer = Offer(offerCount, block.timestamp, _caller, _baseToken, _tokenToSellAddress, false, _numOfTokensToSell, _totalSaleValue, _deadline, _collat, true, 0, address(this), _depositedTokens);
             offers[offerCount] = userOffer;
                 emit OfferCreated(userOffer.id, userOffer.tokenAddress, userOffer.baseToken, userOffer.numberOfTokensForSale, userOffer.totalSaleValue);
     }
@@ -124,21 +130,25 @@ contract Escrow is ReentrancyGuard {
         require(!hasDeadlinePassed(_id), "Deadline passed.");
         if(offers[_id].tokenAddress == _expectedAddress){
             offers[_id].tokenAddressVerified = true;
+            emit TokenAddressVerified(_id, offers[_id].tokenAddress);
         } else {
             offers[_id].tokenAddressVerified = false;
         }
+        
     }
 
-    //Seller must deposit the tokens they are selling AFTER buyer has verified the address
+    //Seller must deposit the tokens they are selling if they did not do so initially
     function depositTokens(uint256 _id) public {
-        require(offers[_id].isOpen, "Offer is closed.");
         require(!hasDeadlinePassed(_id), "Deadline passed.");
-        require(offers[_id].tokenAddressVerified, "Token address not verified by buyer.");
-        require(msg.sender == offers[_id].seller);
+        require(msg.sender == offers[_id].seller, "Not the seller");
         require(offers[_id].tokenAddress != address(0));
+        require(offers[_id].tokenAddressVerified, "Buyer has not verified this token address");
             ERC20 token = ERC20(offers[_id].tokenAddress);
+            uint256 preBal = token.balanceOf(address(this));
         token.safeTransferFrom(msg.sender, address(this), offers[_id].numberOfTokensForSale);
-            offers[_id].tokensDeposited += offers[_id].numberOfTokensForSale;
+            uint256 newBal = token.balanceOf(address(this)) - preBal;
+            offers[_id].tokensDeposited += newBal;
+                emit TokensDeposited(_id, newBal);
     }
 
     //Buyer can accept offer by depositing the correct number of baseToken to an offer
@@ -221,7 +231,6 @@ contract Escrow is ReentrancyGuard {
                 }
                 feesEarned[offers[_id].baseToken] += getExpectedFee(offers[_id].bidValue + offers[_id].depositValue);
                     clearOffer(_id);
-                        emit OfferCancelled(_id);
                         emit OfferBackedOut(_id);
             }else if ((offers[_id].bidValue < offers[_id].totalSaleValue && offers[_id].tokensDeposited >= offers[_id].numberOfTokensForSale)){
                 token.transfer(offers[_id].seller, offers[_id].tokensDeposited);
@@ -231,8 +240,10 @@ contract Escrow is ReentrancyGuard {
                 baseToken.transfer(offers[_id].seller, offers[_id].depositValue - getExpectedFee(offers[_id].depositValue + offers[_id].bidValue));
                 feesEarned[offers[_id].baseToken] += getExpectedFee(offers[_id].bidValue + offers[_id].depositValue);
                     clearOffer(_id);
-                        emit OfferCancelled(_id);
                         emit OfferBackedOut(_id);
+            } else {
+                token.transfer(offers[_id].seller, offers[_id].tokensDeposited);
+                baseToken.transfer(offers[_id].buyer, offers[_id].bidValue);
             }
     }
 
