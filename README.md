@@ -47,7 +47,7 @@ Deadlines are specified in seconds since the Unix epoch, using the block.timesta
 All values are in wei. If you are using a token with a different decimal count than the standard 18, you must account for that.
 
 
-###Events
+### Events
 
 OfferCreated: Emitted when an offer is created.
 
