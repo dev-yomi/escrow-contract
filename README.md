@@ -46,9 +46,15 @@ In the event that the seller did not deposit tokens, the buyer receives the sell
 Deadlines are specified in seconds since the Unix epoch, using the block.timestamp.
 All values are in wei. If you are using a token with a different decimal count than the standard 18, you must account for that.
 Events
+
 OfferCreated: Emitted when an offer is created.
+
 OfferAccepted: Emitted when an offer is accepted by a buyer.
+
 OfferSettled: Emitted when an offer is settled.
+
 OfferCancelled: Emitted when an offer is cancelled.
+
 TokenAddressUpdated: Emitted when the token address is updated.
+
 OfferBackedOut: Emitted when a party backs out of an offer.
