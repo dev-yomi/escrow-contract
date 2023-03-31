@@ -2,6 +2,8 @@
 
 This contract provides an escrow service for securely trading ERC20 tokens on the blockchain, including the Over-The-Counter (OTC) sale of tokens that have not yet launched. It ensures a trustless and secure trading environment for both sellers and buyers.
 
+Unlaunched tokens have multiple mechanisms for sellers/buyers to screw eachother over, still working on a resolution. Meanwhile the smolEscrow contract works.
+
 ## Features
 
 Allows sellers to create offers by specifying the token they wish to receive, the number of tokens to sell, the total sale value, and a deadline.
